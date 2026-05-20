@@ -2,47 +2,123 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# Page title
-st.title("SwimIQ")
+# -----------------------------
+# Page Setup
+# -----------------------------
+st.set_page_config(page_title="SwimIQ", layout="wide")
+st.title("SwimIQ 🏊‍♂️")
 
-# Load dataset
+# -----------------------------
+# Time Conversion
+# -----------------------------
+def time_to_seconds(t):
+    if ":" in str(t):
+        m, s = str(t).split(":")
+        return int(m) * 60 + float(s)
+    return float(t)
+
+# -----------------------------
+# Load Data
+# -----------------------------
 df = pd.read_csv("data/swim_results.csv")
 
-# Display data
-st.subheader("Swim Data")
-st.dataframe(df)
+df["date"] = pd.to_datetime(df["date"])
+df["time_seconds"] = df["time"].apply(time_to_seconds)
 
-# Swimmer selection
-swimmer = st.selectbox(
-    "Select Swimmer",
-    df["swimmer"].unique()
-)
+df = df.sort_values(["swimmer", "event", "date"])
 
-# Event selection
-event = st.selectbox(
-    "Select Event",
-    df["event"].unique()
-)
+# Race-to-race change
+df["time_change"] = df.groupby(["swimmer", "event"])["time_seconds"].diff()
 
-# Filter data
+# -----------------------------
+# Best Event Calculation (IMPROVED)
+# -----------------------------
+best_event_df = df.groupby(["swimmer", "event"]).agg(
+    avg_time=("time_seconds", "mean"),
+    races=("time_seconds", "count")
+).reset_index()
+
+best_event_df = best_event_df.loc[
+    best_event_df.groupby("swimmer")["avg_time"].idxmin()
+]
+
+# -----------------------------
+# Sidebar Filters
+# -----------------------------
+st.sidebar.header("Filters")
+
+swimmer = st.sidebar.selectbox("Select Swimmer", df["swimmer"].unique())
+event = st.sidebar.selectbox("Select Event", df["event"].unique())
+
 filtered_df = df[
     (df["swimmer"] == swimmer) &
     (df["event"] == event)
 ]
 
-# Create chart
-fig = px.line(
+# -----------------------------
+# Best Event Display
+# -----------------------------
+swimmer_best = best_event_df[best_event_df["swimmer"] == swimmer]
+
+if not swimmer_best.empty:
+    best = swimmer_best.iloc[0]
+
+    st.success(
+        f"Best Event: {best['event']} | "
+        f"Avg Time: {best['avg_time']:.2f} sec | "
+        f"Races: {best['races']}"
+    )
+
+# -----------------------------
+# Data Display
+# -----------------------------
+st.subheader("Raw Data")
+st.dataframe(filtered_df)
+
+# -----------------------------
+# Performance Chart (IMPROVED)
+# -----------------------------
+st.subheader("Performance Over Time")
+
+fig = px.scatter(
     filtered_df,
     x="date",
-    y="time",
-    title=f"{swimmer} - {event} Progression",
-    markers=True
+    y="time_seconds",
+    title=f"{swimmer} - {event} Performance"
 )
 
-# Display chart
-st.plotly_chart(fig)
+st.plotly_chart(fig, use_container_width=True)
 
+# -----------------------------
+# Statistics
+# -----------------------------
 st.subheader("Statistics")
 
-st.write("Average Time:", filtered_df["time"].astype(str).iloc[-1])
-st.write("Number of Races:", len(filtered_df))
+avg_time = filtered_df["time_seconds"].mean()
+best_time = filtered_df["time_seconds"].min()
+num_races = len(filtered_df)
+consistency = filtered_df["time_seconds"].std()
+
+st.metric("Average Time (sec)", f"{avg_time:.2f}")
+st.metric("Best Time (sec)", f"{best_time:.2f}")
+st.metric("Races", num_races)
+st.metric("Consistency (std dev)", f"{consistency:.2f}")
+
+# -----------------------------
+# Improvement Analysis
+# -----------------------------
+st.subheader("Improvement Analysis")
+
+improvement = filtered_df["time_change"].mean()
+
+if pd.isna(improvement):
+    st.info("Not enough data to compute improvement.")
+else:
+    st.metric("Avg Improvement per Race (sec)", f"{improvement:.2f}")
+
+    if improvement < 0:
+        st.success("Improving over time 🚀")
+    elif improvement > 0:
+        st.warning("Performance is declining slightly 📉")
+    else:
+        st.info("Stable performance")
