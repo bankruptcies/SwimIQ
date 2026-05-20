@@ -41,3 +41,8 @@ fig = px.line(
 
 # Display chart
 st.plotly_chart(fig)
+
+st.subheader("Statistics")
+
+st.write("Average Time:", filtered_df["time"].astype(str).iloc[-1])
+st.write("Number of Races:", len(filtered_df))
